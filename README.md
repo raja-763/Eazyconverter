@@ -24,7 +24,7 @@ If the project won't open in your Xcode version, do this instead:
 
 ## Reading with the arrow keys
 
-The document opens in **Text** view: the whole document in one read-only text area. Move into it and read with the arrow keys, the way you would in TextEdit or Pages:
+The document screen shows only the document, nothing else. It opens in **Text** view: the whole document in one read-only text area, with keyboard focus already in it. Move into it and read with the arrow keys, the way you would in TextEdit or Pages:
 
 - Up and Down Arrow read by line
 - Option-Left and Option-Right read by word
@@ -33,23 +33,26 @@ The document opens in **Text** view: the whole document in one read-only text ar
 
 On iPhone, swipe up or down with the rotor set to Lines, Words or Characters, or use a keyboard's arrow keys.
 
-The VoiceOver rotor has Headings, Tables and Pages entries in Text view too. On Mac press VO-U, and on iPhone turn the rotor. Tables read one row per line, with each value next to its column name.
+Commands live in the **Document** menu in the menu bar (VO-M, then move to Document) and in the "Read aloud and navigate" toolbar button.
+
+The VoiceOver rotor has Headings and Tables entries in Text view too. On Mac press VO-U, and on iPhone turn the rotor. Tables read one row per line, with each value next to its column name.
 
 To start reading aloud from where the cursor is, press Command-Shift-R.
 
-## Using it with VoiceOver in Structure view
+## One item at a time
 
-Switch the "Reading view" control at the top to **Structure**. The document is then a list. Every heading, paragraph, list item and table row is its own VoiceOver element.
+Choose "Switch between text and one item at a time" from the Document menu (Command-Shift-T). On Mac this is a plain column, not a table, so you read item by item with VO-Right Arrow and never have to interact with it. Every heading, paragraph, list item and table row is its own VoiceOver element.
 
-Headings are real headings with levels 1 to 6. On iPhone, set the rotor to Headings and swipe up or down. On Mac, press VO-U and pick the Headings rotor, or use the "Headings" button (Command-Shift-H).
+Headings are real headings with levels 1 to 6. On iPhone, set the rotor to Headings and swipe up or down. On Mac, press VO-U and pick the Headings rotor, or choose "Go to heading" (Command-Shift-H).
 
-There are also three custom rotors:
+There are also two custom rotors:
 
 - Headings, with the level of each
 - Tables, with row and column counts
-- Pages, for PDFs with more than one page
 
-In a table, each row is announced with its column names, such as "Row 2 of 5. Name: Alice, Role: Editor".
+Page numbers from PDFs are left out, because they're layout rather than content.
+
+Tables aren't groups you have to interact with. Each row is announced with its column names, such as "Row 2 of 5. Name: Alice, Role: Editor".
 
 Every item has two VoiceOver actions: "Read aloud from here" and "Copy text". On iPhone, swipe up or down to pick one. On Mac, press VO-Command-Space.
 
@@ -61,16 +64,28 @@ All shortcuts include Command, so they never clash with typing or with VoiceOver
 
 | Action | Keys |
 | --- | --- |
-| Open file | Command-O |
+| Upload file to convert | Command-O |
+| Upload image (description and text) | Command-Shift-I |
+| Back to upload screen (clears the document) | Command-Shift-U |
 | Convert and save | Command-Shift-S |
 | Read aloud, pause or resume | Command-Shift-R |
 | Stop reading | Command-Period |
 | Next heading (reading) | Command-Option-Right Arrow |
 | Previous heading (reading) | Command-Option-Left Arrow |
 | Go to heading list | Command-Shift-H |
-| Read from selected item | Return, in the document list |
+| Switch between text and one item at a time | Command-Shift-T |
+| Read from selected item (iPhone and iPad list) | Return |
 
 Everything else is reachable with Tab and Shift-Tab when Full Keyboard Access or "Keyboard navigation" is on in System Settings > Keyboard.
+
+## Image descriptions
+
+Choose "Upload image" (Command-Shift-I) and pick a photo or screenshot. You get:
+
+- **Image description**: the picture's shape and size, what it likely shows (for example "sky, outdoor, building"), and how many people, faces, cats or dogs were found.
+- **Text in the picture**: any text, with large lines treated as headings.
+
+Both are made on your device by Apple's Vision framework. Vision gives labels rather than full sentences, so the description lists likely contents instead of writing a caption. You can convert the result to Word, PDF or any other format, like any document.
 
 ## Read aloud
 
@@ -85,7 +100,7 @@ Reading only starts when you ask for it. By default it uses the voice and speed 
 | Markdown | Headings, lists, tables, code |
 | PDF | Headings and lists are worked out from text size, weight and layout. Scanned pages are read on your device. |
 | RTF | Headings worked out from text size and weight |
-| Pictures (PNG, JPEG, HEIC, TIFF, screenshots) | Text read on your device, with large lines treated as headings |
+| Pictures (PNG, JPEG, HEIC, TIFF, screenshots) | A description of what the picture likely shows, plus its text, both made on your device |
 | Plain text | Paragraphs |
 
 | To | What you get |

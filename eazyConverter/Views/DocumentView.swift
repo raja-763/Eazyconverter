@@ -1,14 +1,15 @@
 import SwiftUI
 
-/// The explorer. Two ways to read:
-/// - Text: the whole document in one text area, read with the arrow keys
-///   (VoiceOver follows the cursor), with Headings, Tables and Pages rotors.
-/// - Structure: every block is its own VoiceOver element with real heading levels.
+/// The document screen shows only the document. Everything else (read aloud,
+/// headings list, view switch) lives in the toolbar and the Document menu.
+/// - Text view: the whole document in one text area, read with the arrow keys.
+/// - Structure view: each block is its own VoiceOver item.
 struct DocumentView: View {
     enum Mode: Hashable { case text, structure }
 
     let doc: DocumentModel
     @ObservedObject var reader: SpeechReader
+    var onBack: () -> Void = {}
 
     @State private var mode: Mode = .text
     @State private var reading: ReadingText?
@@ -21,16 +22,13 @@ struct DocumentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
+        Group {
             switch mode {
             case .text:
                 if let reading {
                     ReadingTextView(reading: reading, caret: $caret, jump: $jump)
                 } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             case .structure:
                 structureView
@@ -42,11 +40,10 @@ struct DocumentView: View {
             caret = 0
             selection = nil
         }
-        .safeAreaInset(edge: .bottom) {
-            ReaderBar(reader: reader, showOutline: $showOutline,
-                      startIndex: startIndex,
-                      startWord: mode == .text ? "cursor" : "selected item")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) { readMenu }
         }
+        .focusedSceneValue(\.docCommands, commands)
         .sheet(isPresented: $showOutline) {
             OutlineSheet(doc: doc) { id in
                 showOutline = false
@@ -55,33 +52,62 @@ struct DocumentView: View {
         }
     }
 
-    // MARK: Instructions and view switch, at the top
+    // MARK: Commands (toolbar menu and the Document menu in the menu bar)
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(mode == .text ? Self.textTip : Self.structureTip)
-                .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-            Picker("Reading view", selection: $mode) {
-                Text("Text, read with arrow keys").tag(Mode.text)
-                Text("Structure, one item at a time").tag(Mode.structure)
-            }
-            .pickerStyle(.segmented)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("From \(doc.sourceFileName). \(doc.headings.count) headings, \(doc.wordCount) words.")
-                    .foregroundStyle(.secondary)
-                ForEach(doc.notes, id: \.self) { note in
-                    Label(note, systemImage: "info.circle")
-                }
-            }
-            .font(.callout)
-            .accessibilityElement(children: .combine)
-        }
-        .padding()
+    private var commands: DocCommands {
+        DocCommands(
+            isSpeaking: reader.state == .speaking,
+            playPause: playPause,
+            stop: { reader.stop() },
+            nextHeading: { reader.nextSection() },
+            previousHeading: { reader.previousSection() },
+            showHeadings: { showOutline = true },
+            toggleView: toggleView
+        )
     }
 
-    static let textTip = "To read, move into the document text and use the arrow keys: Up and Down for lines, Option with Left or Right for words. Use the VoiceOver rotor, or Command-Shift-H, to jump to a heading, table or page. Command-Shift-R reads aloud from the cursor."
-    static let structureTip = "Each heading, paragraph, list item and table row is its own item. Use the Headings rotor to jump between headings. Select an item and press Return, or use the Read aloud from here action, to hear it read aloud."
+    private var readMenu: some View {
+        Menu {
+            Button(playTitle, action: playPause)
+            Button("Stop reading") { reader.stop() }
+                .disabled(reader.state == .idle)
+            Button("Next heading") { reader.nextSection() }
+            Button("Previous heading") { reader.previousSection() }
+            Divider()
+            Button("Go to heading…") { showOutline = true }
+            Button(mode == .text ? "Show one item at a time" : "Show as text", action: toggleView)
+            Divider()
+            Toggle("Use my VoiceOver voice and speed", isOn: $reader.useVoiceOverVoice)
+            if !reader.useVoiceOverVoice {
+                Picker("Speaking speed", selection: $reader.speed) {
+                    Text("Slow").tag(0.75)
+                    Text("Normal").tag(1.0)
+                    Text("Fast").tag(1.35)
+                    Text("Fastest").tag(1.7)
+                }
+            }
+        } label: {
+            Label("Read aloud and navigate", systemImage: "speaker.wave.2")
+        }
+    }
+
+    private var playTitle: String {
+        switch reader.state {
+        case .speaking: return "Pause reading"
+        case .paused: return "Resume reading"
+        case .idle: return startIndex == nil ? "Read aloud from the start"
+            : (mode == .text ? "Read aloud from the cursor" : "Read aloud from the selected item")
+        }
+    }
+
+    private func playPause() {
+        if reader.state == .idle { reader.play(from: startIndex) } else { reader.togglePlayPause() }
+    }
+
+    private func toggleView() {
+        mode = mode == .text ? .structure : .text
+        announce(mode == .text ? "Text view" : "One item at a time")
+    }
 
     private var startIndex: Int? {
         switch mode {
@@ -117,48 +143,74 @@ struct DocumentView: View {
 
     private var structureView: some View {
         ScrollViewReader { proxy in
-            List(selection: $selection) {
+            structureList
+                .accessibilityRotor("Headings") {
+                    ForEach(doc.headings) { h in
+                        AccessibilityRotorEntry(Text("\(h.text), level \(h.headingLevel ?? 1)"), id: h.id)
+                    }
+                }
+                .accessibilityRotor("Tables") {
+                    ForEach(doc.blocks.filter { if case .table = $0.kind { return true } else { return false } }) { t in
+                        AccessibilityRotorEntry(Text(tableName(t)), id: t.id)
+                    }
+                }
+                .onChange(of: reader.currentIndex) { _, index in
+                    guard let index, doc.blocks.indices.contains(index) else { return }
+                    scroll(proxy, to: doc.blocks[index].id)
+                }
+                .onChange(of: scrollTarget) { _, id in
+                    if let id { scroll(proxy, to: id) }
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var structureList: some View {
+        #if os(macOS)
+        // A plain column, not a table, so VoiceOver reads item by item with
+        // VO-Right Arrow and never asks you to interact with a table or list.
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(doc.blocks.enumerated()), id: \.element.id) { index, block in
-                    BlockRow(block: block, isBeingRead: reader.currentIndex == index)
-                        .id(block.id)
-                        .tag(block.id)
-                        .accessibilityFocused($focusedBlock, equals: block.id)
-                        .accessibilityAction(named: "Read aloud from here") { reader.play(from: index) }
-                        .accessibilityAction(named: "Copy text") { copy(block) }
-                        .contextMenu {
-                            Button("Read aloud from here") { reader.play(from: index) }
-                            Button("Copy text") { copy(block) }
-                        }
+                    if !isPageMarker(block) {
+                        row(block, index).padding(.horizontal)
+                    }
                 }
             }
-            .accessibilityRotor("Headings") {
-                ForEach(doc.headings) { h in
-                    AccessibilityRotorEntry(Text("\(h.text), level \(h.headingLevel ?? 1)"), id: h.id)
+            .padding(.vertical)
+        }
+        #else
+        List(selection: $selection) {
+            ForEach(Array(doc.blocks.enumerated()), id: \.element.id) { index, block in
+                if !isPageMarker(block) {
+                    row(block, index).tag(block.id)
                 }
-            }
-            .accessibilityRotor("Tables") {
-                ForEach(doc.blocks.filter { if case .table = $0.kind { return true } else { return false } }) { t in
-                    AccessibilityRotorEntry(Text(tableName(t)), id: t.id)
-                }
-            }
-            .accessibilityRotor("Pages") {
-                ForEach(doc.blocks.filter { if case .pageMarker = $0.kind { return true } else { return false } }) { p in
-                    AccessibilityRotorEntry(Text(p.spokenText), id: p.id)
-                }
-            }
-            .onKeyPress(.return) {
-                guard let id = selection, let i = doc.blocks.firstIndex(where: { $0.id == id }) else { return .ignored }
-                reader.play(from: i)
-                return .handled
-            }
-            .onChange(of: reader.currentIndex) { _, index in
-                guard let index, doc.blocks.indices.contains(index) else { return }
-                scroll(proxy, to: doc.blocks[index].id)
-            }
-            .onChange(of: scrollTarget) { _, id in
-                if let id { scroll(proxy, to: id) }
             }
         }
+        .listStyle(.plain)
+        .onKeyPress(.return) {
+            guard let id = selection, let i = doc.blocks.firstIndex(where: { $0.id == id }) else { return .ignored }
+            reader.play(from: i)
+            return .handled
+        }
+        #endif
+    }
+
+    private func isPageMarker(_ block: Block) -> Bool {
+        if case .pageMarker = block.kind { return true }
+        return false
+    }
+
+    private func row(_ block: Block, _ index: Int) -> some View {
+        BlockRow(block: block, isBeingRead: reader.currentIndex == index)
+            .id(block.id)
+            .accessibilityFocused($focusedBlock, equals: block.id)
+            .accessibilityAction(named: "Read aloud from here") { reader.play(from: index) }
+            .accessibilityAction(named: "Copy text") { copy(block) }
+            .contextMenu {
+                Button("Read aloud from here") { reader.play(from: index) }
+                Button("Copy text") { copy(block) }
+            }
     }
 
     private func scroll(_ proxy: ScrollViewProxy, to id: Block.ID) {
@@ -251,6 +303,8 @@ struct TableBlockView: View {
     let hasHeaderRow: Bool
 
     var body: some View {
+        // Not wrapped in a group: VoiceOver moves straight from row to row
+        // with no table to interact with. Each row says its column names.
         VStack(alignment: .leading, spacing: 0) {
             ForEach(rows.indices, id: \.self) { r in
                 HStack(alignment: .top, spacing: 8) {
@@ -264,95 +318,8 @@ struct TableBlockView: View {
                 .background(hasHeaderRow && r == 0 ? Color.secondary.opacity(0.15) : Color.clear)
                 .overlay(alignment: .bottom) { Divider() }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(rowLabel(r))
+                .accessibilityLabel(Block.tableRowLabel(rows: rows, row: r, hasHeaderRow: hasHeaderRow))
             }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Table, \(rows.count) rows, \(rows.first?.count ?? 0) columns")
-    }
-
-    private func rowLabel(_ r: Int) -> String {
-        let cells = rows[r]
-        if hasHeaderRow {
-            if r == 0 { return "Column headers: " + cells.joined(separator: ", ") }
-            let headers = rows[0]
-            let pairs = cells.enumerated().map { i, value in
-                let name = i < headers.count && !headers[i].isEmpty ? headers[i] : "Column \(i + 1)"
-                return "\(name): \(value.isEmpty ? "blank" : value)"
-            }
-            return "Row \(r) of \(rows.count - 1). " + pairs.joined(separator: ", ")
-        }
-        return "Row \(r + 1) of \(rows.count). " + cells.map { $0.isEmpty ? "blank" : $0 }.joined(separator: ", ")
-    }
-}
-
-// MARK: - Reader bar
-
-struct ReaderBar: View {
-    @ObservedObject var reader: SpeechReader
-    @Binding var showOutline: Bool
-    let startIndex: Int?
-    var startWord = "selected item"
-
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                Button { showOutline = true } label: {
-                    Label("Headings", systemImage: "list.bullet.indent")
-                }
-                .keyboardShortcut("h", modifiers: [.command, .shift])
-
-                Button { reader.previousSection() } label: {
-                    Label("Previous heading", systemImage: "backward.end")
-                }
-                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
-
-                Button {
-                    if reader.state == .idle { reader.play(from: startIndex) } else { reader.togglePlayPause() }
-                } label: {
-                    Label(playTitle, systemImage: reader.state == .speaking ? "pause.fill" : "play.fill")
-                }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
-
-                Button { reader.stop() } label: {
-                    Label("Stop reading", systemImage: "stop.fill")
-                }
-                .disabled(reader.state == .idle)
-                .keyboardShortcut(".", modifiers: .command)
-
-                Button { reader.nextSection() } label: {
-                    Label("Next heading", systemImage: "forward.end")
-                }
-                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-
-            Toggle("Use my VoiceOver voice and speed", isOn: $reader.useVoiceOverVoice)
-            if !reader.useVoiceOverVoice {
-                Slider(value: $reader.speed, in: 0.5...2, step: 0.1) {
-                    Text("Speaking speed")
-                } minimumValueLabel: {
-                    Text("Slow").font(.caption)
-                } maximumValueLabel: {
-                    Text("Fast").font(.caption)
-                }
-                .accessibilityValue("\(Int((reader.speed * 100).rounded())) percent")
-            }
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 10)
-        .background(.bar)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Read aloud controls")
-    }
-
-    private var playTitle: String {
-        switch reader.state {
-        case .speaking: return "Pause reading"
-        case .paused: return "Resume reading"
-        case .idle: return startIndex == nil ? "Read aloud from the start" : "Read aloud from \(startWord)"
         }
     }
 }
@@ -392,5 +359,58 @@ struct OutlineSheet: View {
         #if os(macOS)
         .frame(minWidth: 420, minHeight: 480)
         #endif
+    }
+}
+
+// MARK: - Menu bar commands
+
+/// What the Document menu can do for the window that's in front.
+struct DocCommands {
+    var isSpeaking: Bool
+    var playPause: () -> Void
+    var stop: () -> Void
+    var nextHeading: () -> Void
+    var previousHeading: () -> Void
+    var showHeadings: () -> Void
+    var toggleView: () -> Void
+}
+
+struct DocCommandsKey: FocusedValueKey {
+    typealias Value = DocCommands
+}
+
+extension FocusedValues {
+    var docCommands: DocCommands? {
+        get { self[DocCommandsKey.self] }
+        set { self[DocCommandsKey.self] = newValue }
+    }
+}
+
+/// The Document menu. Every shortcut includes Command, so none clash with
+/// typing or VoiceOver. Listed in the menu bar, so VO-M finds them all.
+struct DocumentMenu: View {
+    @FocusedValue(\.docCommands) private var commands
+
+    var body: some View {
+        Button(commands?.isSpeaking == true ? "Pause reading" : "Read aloud") { commands?.playPause() }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(commands == nil)
+        Button("Stop reading") { commands?.stop() }
+            .keyboardShortcut(".", modifiers: .command)
+            .disabled(commands == nil)
+        Divider()
+        Button("Next heading") { commands?.nextHeading() }
+            .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+            .disabled(commands == nil)
+        Button("Previous heading") { commands?.previousHeading() }
+            .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+            .disabled(commands == nil)
+        Button("Go to heading…") { commands?.showHeadings() }
+            .keyboardShortcut("h", modifiers: [.command, .shift])
+            .disabled(commands == nil)
+        Divider()
+        Button("Switch between text and one item at a time") { commands?.toggleView() }
+            .keyboardShortcut("t", modifiers: [.command, .shift])
+            .disabled(commands == nil)
     }
 }

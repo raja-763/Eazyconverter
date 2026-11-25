@@ -35,6 +35,6 @@ final class DocumentStore: ObservableObject {
     func clear() {
         document = nil
         errorMessage = nil
-        announce("Document cleared from memory.")
+        announce("Upload screen. The document was cleared from memory.")
     }
 }

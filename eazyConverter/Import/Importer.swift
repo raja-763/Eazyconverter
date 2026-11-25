@@ -66,13 +66,28 @@ enum Importer {
 
     static func readImage(_ data: Data, fileName: String) throws -> DocumentModel {
         let image = try OCR.cgImage(from: data)
-        let blocks = try OCR.blocks(in: image)
-        let title = (fileName as NSString).deletingPathExtension
+        let textBlocks = (try? OCR.blocks(in: image)) ?? []
+        let description = ImageDescriber.describe(image, hasText: !textBlocks.isEmpty)
+
+        var blocks = [
+            Block(kind: .heading(level: 2), text: "Image description"),
+            Block(kind: .paragraph, text: description)
+        ]
+        if !textBlocks.isEmpty {
+            blocks.append(Block(kind: .heading(level: 2), text: "Text in the picture"))
+            // Keep the picture's own headings below the section heading.
+            blocks += textBlocks.map { b in
+                guard case .heading(let level) = b.kind else { return b }
+                var copy = b
+                copy.kind = .heading(level: min(6, level + 2))
+                return copy
+            }
+        }
         return DocumentModel(
-            title: title,
+            title: (fileName as NSString).deletingPathExtension,
             sourceFileName: fileName,
             blocks: blocks,
-            notes: ["Text was read from this picture on your device. Recognition can make mistakes, so check names and numbers."]
+            notes: ["The description and text were made on your device by Apple's Vision framework. It lists what the picture likely shows rather than writing a full caption, and recognition can make mistakes."]
         )
     }
 

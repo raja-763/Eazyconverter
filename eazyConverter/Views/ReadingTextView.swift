@@ -25,6 +25,11 @@ struct ReadingText {
 
         for (i, block) in doc.blocks.enumerated() {
             let start = out.length
+            // Page numbers from PDFs are layout, not content: leave them out of the text.
+            if case .pageMarker = block.kind {
+                ranges.append(NSRange(location: start, length: 0))
+                continue
+            }
             let style = NSMutableParagraphStyle()
             style.paragraphSpacing = 10
             var font = Fonts.body
@@ -86,22 +91,34 @@ extension Block {
     /// One line per table row, each saying its column names with its values.
     func tableLines(rows: [[String]], hasHeaderRow: Bool) -> [String] {
         let cols = rows.first?.count ?? 0
-        var lines = ["Table, \(rows.count) rows, \(cols) columns."]
-        for (r, cells) in rows.enumerated() {
-            if hasHeaderRow {
-                if r == 0 { lines.append("Column headers: " + cells.joined(separator: ", ")); continue }
-                let headers = rows[0]
-                let pairs = cells.enumerated().map { i, value in
-                    let name = i < headers.count && !headers[i].isEmpty ? headers[i] : "Column \(i + 1)"
-                    return "\(name): \(value.isEmpty ? "blank" : value)"
-                }
-                lines.append("Row \(r) of \(rows.count - 1). " + pairs.joined(separator: ", "))
-            } else {
-                lines.append("Row \(r + 1) of \(rows.count). " + cells.map { $0.isEmpty ? "blank" : $0 }.joined(separator: ", "))
+        // A short lead-in names the columns; each row then reads with them.
+        var lines: [String] = []
+        if hasHeaderRow, let headers = rows.first {
+            lines.append("Table with \(cols) columns: " + headers.joined(separator: ", ") + ".")
+            for r in rows.indices.dropFirst() {
+                lines.append(Block.tableRowLabel(rows: rows, row: r, hasHeaderRow: true))
+            }
+        } else {
+            for r in rows.indices {
+                lines.append(Block.tableRowLabel(rows: rows, row: r, hasHeaderRow: false))
             }
         }
-        lines.append("End of table.")
         return lines
+    }
+
+    /// One row, read with its column names: "Row 2 of 5. Name: Alice, Role: Editor".
+    static func tableRowLabel(rows: [[String]], row r: Int, hasHeaderRow: Bool) -> String {
+        let cells = rows[r]
+        if hasHeaderRow {
+            if r == 0 { return "Column headers: " + cells.joined(separator: ", ") }
+            let headers = rows[0]
+            let pairs = cells.enumerated().map { i, value in
+                let name = i < headers.count && !headers[i].isEmpty ? headers[i] : "Column \(i + 1)"
+                return "\(name): \(value.isEmpty ? "blank" : value)"
+            }
+            return "Row \(r) of \(rows.count - 1). " + pairs.joined(separator: ", ")
+        }
+        return "Row \(r + 1) of \(rows.count). " + cells.map { $0.isEmpty ? "blank" : $0 }.joined(separator: ", ")
     }
 }
 

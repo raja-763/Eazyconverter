@@ -7,6 +7,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var showImporter = false
+    @State private var importTypes: [UTType] = Importer.openableTypes
     @State private var showPasteSheet = false
     @State private var showImageSheet = false
 
@@ -23,19 +24,19 @@ struct ContentView: View {
                     ProgressView("Opening and reading the file…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let doc = store.document {
-                    DocumentView(doc: doc, reader: reader)
+                    DocumentView(doc: doc, reader: reader, onBack: backToUpload)
                 } else {
                     WelcomeView(
-                        open: { showImporter = true },
-                        paste: { showPasteSheet = true },
-                        makeImage: { showImageSheet = true }
+                        open: { openFile() },
+                        openImage: { openImage() },
+                        paste: { showPasteSheet = true }
                     )
                 }
             }
             .navigationTitle(store.document?.title ?? "eazyConverter")
             .toolbar { toolbarContent }
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: Importer.openableTypes) { result in
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: importTypes) { result in
             switch result {
             case .success(let url):
                 Task { await store.open(url) }
@@ -76,13 +77,28 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            if store.document != nil {
+                Button(action: backToUpload) {
+                    Label("Back to upload screen", systemImage: "chevron.backward")
+                }
+                .keyboardShortcut("u", modifiers: [.command, .shift])
+            }
+        }
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
-                showImporter = true
+                openFile()
             } label: {
                 Label("Upload file to convert", systemImage: "square.and.arrow.up")
             }
             .keyboardShortcut("o", modifiers: .command)
+
+            Button {
+                openImage()
+            } label: {
+                Label("Upload image", systemImage: "photo")
+            }
+            .keyboardShortcut("i", modifiers: [.command, .shift])
 
             if store.document != nil {
                 Menu {
@@ -128,6 +144,22 @@ struct ContentView: View {
         }
     }
 
+    /// Leaves the document and erases it from memory.
+    private func backToUpload() {
+        reader.stop()
+        store.clear()
+    }
+
+    private func openFile() {
+        importTypes = Importer.openableTypes
+        showImporter = true
+    }
+
+    private func openImage() {
+        importTypes = [.image]
+        showImporter = true
+    }
+
     private func export(_ format: ExportFormat) {
         guard let doc = store.document else { return }
         isExporting = true
@@ -155,11 +187,12 @@ func safeFileName(_ title: String) -> String {
 
 private struct WelcomeView: View {
     let open: () -> Void
+    let openImage: () -> Void
     let paste: () -> Void
-    let makeImage: () -> Void
 
     static let steps = [
         "Choose Upload file to convert, or press Command-O, and pick a PDF, Word document, web page, text file or picture.",
+        "Or choose Upload image, or press Command-Shift-I, to get a description of a picture and any text in it.",
         "Read it with the arrow keys. Up and Down move by line. Use the VoiceOver rotor, or Command-Shift-H, to jump to a heading.",
         "To hear it read aloud, press Command-Shift-R. Press it again to pause.",
         "To convert, choose Convert and save, or press Command-Shift-S, then pick Word, PDF, web page, plain text or Markdown.",
@@ -185,12 +218,12 @@ private struct WelcomeView: View {
                         Label("Upload file to convert", systemImage: "square.and.arrow.up")
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    Button(action: paste) {
-                        Label("Type or paste text", systemImage: "doc.text")
+                    Button(action: openImage) {
+                        Label("Upload image", systemImage: "photo")
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    Button(action: makeImage) {
-                        Label("Make a picture from text", systemImage: "photo")
+                    Button(action: paste) {
+                        Label("Type or paste text", systemImage: "doc.text")
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
@@ -201,7 +234,7 @@ private struct WelcomeView: View {
                     .font(.headline)
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityHeading(.h2)
-                Text("PDF, Word (.docx), web pages (.html), plain text, Markdown, RTF, and pictures such as photos and screenshots. Text in pictures and scanned PDFs is read on your device.")
+                Text("PDF, Word (.docx), web pages (.html), plain text, Markdown, RTF, and pictures such as photos and screenshots. Pictures get a description of what they likely show, plus any text in them. Text in scanned PDFs is read too. All of this happens on your device.")
 
                 Text("Saves as")
                     .font(.headline)
