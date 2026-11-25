@@ -1,6 +1,6 @@
 # eazyConverter
 
-An accessible file converter and audio-first document explorer and file converter for Mac, iPhone and iPad. It's built for VoiceOver and keyboard users first.
+An accessible file converter and document reader for Mac, iPhone and iPad. It's built for VoiceOver and keyboard users first.
 
 Open a PDF, Word document, web page, text, Markdown, RTF file or picture. Move through it by headings, tables and pages, hear it read aloud, and save it as Word, PDF, HTML, plain text, Markdown or a PNG picture.
 
