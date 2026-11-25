@@ -65,7 +65,6 @@ All shortcuts include Command, so they never clash with typing or with VoiceOver
 | Action | Keys |
 | --- | --- |
 | Upload file to convert | Command-O |
-| Upload image (description and text) | Command-Shift-I |
 | Back to upload screen (clears the document) | Command-Shift-U |
 | Convert and save | Command-Shift-S |
 | Read aloud, pause or resume | Command-Shift-R |
@@ -80,7 +79,7 @@ Everything else is reachable with Tab and Shift-Tab when Full Keyboard Access or
 
 ## Image descriptions
 
-Choose "Upload image" (Command-Shift-I) and pick a photo or screenshot. You get:
+There's one upload button for everything. Choose "Upload file to convert" (Command-O) and pick a photo or screenshot. You get:
 
 - **Image description**: the picture's shape and size, what it likely shows (for example "sky, outdoor, building"), and how many people, faces, cats or dogs were found.
 - **Text in the picture**: any text, with large lines treated as headings.

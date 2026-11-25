@@ -7,7 +7,6 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var showImporter = false
-    @State private var importTypes: [UTType] = Importer.openableTypes
     @State private var showPasteSheet = false
     @State private var showImageSheet = false
 
@@ -27,8 +26,7 @@ struct ContentView: View {
                     DocumentView(doc: doc, reader: reader, onBack: backToUpload)
                 } else {
                     WelcomeView(
-                        open: { openFile() },
-                        openImage: { openImage() },
+                        open: { showImporter = true },
                         paste: { showPasteSheet = true }
                     )
                 }
@@ -36,7 +34,7 @@ struct ContentView: View {
             .navigationTitle(store.document?.title ?? "eazyConverter")
             .toolbar { toolbarContent }
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: importTypes) { result in
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: Importer.openableTypes) { result in
             switch result {
             case .success(let url):
                 Task { await store.open(url) }
@@ -87,18 +85,11 @@ struct ContentView: View {
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
-                openFile()
+                showImporter = true
             } label: {
                 Label("Upload file to convert", systemImage: "square.and.arrow.up")
             }
             .keyboardShortcut("o", modifiers: .command)
-
-            Button {
-                openImage()
-            } label: {
-                Label("Upload image", systemImage: "photo")
-            }
-            .keyboardShortcut("i", modifiers: [.command, .shift])
 
             if store.document != nil {
                 Menu {
@@ -150,16 +141,6 @@ struct ContentView: View {
         store.clear()
     }
 
-    private func openFile() {
-        importTypes = Importer.openableTypes
-        showImporter = true
-    }
-
-    private func openImage() {
-        importTypes = [.image]
-        showImporter = true
-    }
-
     private func export(_ format: ExportFormat) {
         guard let doc = store.document else { return }
         isExporting = true
@@ -187,12 +168,10 @@ func safeFileName(_ title: String) -> String {
 
 private struct WelcomeView: View {
     let open: () -> Void
-    let openImage: () -> Void
     let paste: () -> Void
 
     static let steps = [
-        "Choose Upload file to convert, or press Command-O, and pick a PDF, Word document, web page, text file or picture.",
-        "Or choose Upload image, or press Command-Shift-I, to get a description of a picture and any text in it.",
+        "Choose Upload file to convert, or press Command-O, and pick a PDF, Word document, web page, text file or picture. A picture gets a description of what it shows, plus any text in it.",
         "Read it with the arrow keys. Up and Down move by line. Use the VoiceOver rotor, or Command-Shift-H, to jump to a heading.",
         "To hear it read aloud, press Command-Shift-R. Press it again to pause.",
         "To convert, choose Convert and save, or press Command-Shift-S, then pick Word, PDF, web page, plain text or Markdown.",
@@ -216,10 +195,6 @@ private struct WelcomeView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Button(action: open) {
                         Label("Upload file to convert", systemImage: "square.and.arrow.up")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    Button(action: openImage) {
-                        Label("Upload image", systemImage: "photo")
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     Button(action: paste) {
