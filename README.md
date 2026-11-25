@@ -6,7 +6,27 @@ Open a PDF, Word document, web page, text, Markdown, RTF file or picture. Move t
 
 ## Download
 
-Signed, notarized DMGs are on the Releases page. Open the DMG and drag eazyConverter into Applications. It opens without a Gatekeeper warning, because every release is signed with a Developer ID certificate and notarized by Apple. A release is only published if that succeeds. Requires macOS 14 or later. See RELEASING.md for how releases are made.
+Download the DMG from the Releases page. It needs macOS 14 or later.
+
+### Opening it the first time
+
+Releases are not yet notarized by Apple, so macOS blocks eazyConverter the first time you open it and says it can't verify the app. That's expected, and you only need to do this once:
+
+1. Open the DMG, then drag eazyConverter into Applications.
+2. Open eazyConverter from Applications. When macOS says it can't verify the app, choose Done (or OK).
+3. Open System Settings, then Privacy & Security. Near the bottom it says eazyConverter was blocked. Choose Open Anyway, then confirm with your password or Touch ID.
+
+After that it opens normally.
+
+If you prefer Terminal, run this after copying the app to Applications:
+
+```
+xattr -dr com.apple.quarantine /Applications/eazyConverter.app
+```
+
+To check the download wasn't altered, run `shasum -a 256` on the DMG and compare the result with the `.sha256` file on the release.
+
+Once the project has an Apple Developer ID, releases will be signed and notarized and this step goes away. See RELEASING.md.
 
 ## Build and run
 

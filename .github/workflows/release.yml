@@ -1,8 +1,11 @@
 name: Release signed DMG
 
-# Push a tag such as v1.0.0 to build, sign, notarize and publish a DMG.
-# The DMG is only published if Apple notarizes it, so people who download it
-# never see the "Apple could not verify..." Gatekeeper warning.
+# Push a tag such as v1.0.0 to build and publish a DMG.
+#
+# With the six signing secrets set (see RELEASING.md), the app and DMG are
+# signed with Developer ID and notarized by Apple: no Gatekeeper warning.
+# Without them, the app is ad-hoc signed and the DMG is published with
+# instructions for opening it the first time (System Settings > Open Anyway).
 
 on:
   push:
@@ -24,15 +27,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Stop if signing isn't set up
+      - name: Choose signed or unsigned build
         run: |
-          missing=0
+          signed=true
           for v in MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD APPLE_TEAM_ID NOTARY_KEY_P8 NOTARY_KEY_ID NOTARY_ISSUER_ID; do
-            if [ -z "${!v}" ]; then echo "::error::Missing repository secret $v. See RELEASING.md."; missing=1; fi
+            if [ -z "${!v}" ]; then signed=false; fi
           done
-          if [ "$missing" = 1 ]; then
-            echo "::error::No DMG was published. An unsigned DMG would show the Gatekeeper warning."
-            exit 1
+          echo "SIGNED=$signed" >> "$GITHUB_ENV"
+          if [ "$signed" = false ]; then
+            echo "::warning::Signing secrets aren't set, so this release is ad-hoc signed and not notarized. See RELEASING.md."
           fi
 
       - name: Set version
@@ -41,6 +44,7 @@ jobs:
           echo "WORK=$RUNNER_TEMP/release" >> "$GITHUB_ENV"
 
       - name: Load the Developer ID certificate into a temporary keychain
+        if: env.SIGNED == 'true'
         run: |
           KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
@@ -56,6 +60,7 @@ jobs:
           printf '%s' "$NOTARY_KEY_P8" > "$RUNNER_TEMP/notary.p8"
 
       - name: Build and sign the app (hardened runtime, sandboxed, timestamped)
+        if: env.SIGNED == 'true'
         run: |
           xcodebuild \
             -project eazyConverter.xcodeproj \
@@ -76,6 +81,7 @@ jobs:
           codesign -d --entitlements - "$APP"
 
       - name: Notarize and staple the app
+        if: env.SIGNED == 'true'
         run: |
           ditto -c -k --keepParent "$APP" "$WORK/app.zip"
           xcrun notarytool submit "$WORK/app.zip" \
@@ -91,6 +97,7 @@ jobs:
           spctl --assess --type execute --verbose=4 "$APP"
 
       - name: Make, sign, notarize and staple the DMG
+        if: env.SIGNED == 'true'
         run: |
           DMG="$WORK/eazyConverter-$VERSION.dmg"
           echo "DMG=$DMG" >> "$GITHUB_ENV"
@@ -114,19 +121,78 @@ jobs:
           (cd "$WORK" && shasum -a 256 "eazyConverter-$VERSION.dmg" > "eazyConverter-$VERSION.dmg.sha256")
           cat "$DMG.sha256"
 
+      - name: Build the app (ad-hoc signed)
+        if: env.SIGNED != 'true'
+        run: |
+          xcodebuild \
+            -project eazyConverter.xcodeproj \
+            -target eazyConverter \
+            -sdk macosx \
+            -configuration Release \
+            SYMROOT="$WORK/build" \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="-" \
+            DEVELOPMENT_TEAM="" \
+            build
+          APP="$WORK/build/Release/eazyConverter.app"
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -d --entitlements - "$APP"
+
+      - name: Make the DMG (not notarized)
+        if: env.SIGNED != 'true'
+        run: |
+          DMG="$WORK/eazyConverter-$VERSION.dmg"
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
+          mkdir -p "$WORK/dmg"
+          cp -R "$APP" "$WORK/dmg/"
+          ln -s /Applications "$WORK/dmg/Applications"
+          hdiutil create -volname "eazyConverter" -srcfolder "$WORK/dmg" -ov -format UDZO "$DMG"
+          hdiutil verify "$DMG"
+          (cd "$WORK" && shasum -a 256 "eazyConverter-$VERSION.dmg" > "eazyConverter-$VERSION.dmg.sha256")
+          cat "$DMG.sha256"
+
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "$DMG" "$DMG.sha256" \
-            --title "eazyConverter $VERSION" \
-            --notes "Signed with a Developer ID certificate and notarized by Apple, so it opens without a Gatekeeper warning.
+          if [ "$SIGNED" = true ]; then
+            TITLE="eazyConverter $VERSION"
+            cat > "$WORK/notes.md" <<'NOTES'
+          Signed with a Developer ID certificate and notarized by Apple, so it opens without a Gatekeeper warning.
 
           **Install:** open the DMG, then drag eazyConverter into Applications. Requires macOS 14 or later.
 
-          **Check the download (optional):** in Terminal, run \`shasum -a 256\` on the DMG and compare it with the .sha256 file.
+          **Check the download (optional):** in Terminal, run `shasum -a 256` on the DMG and compare the result with the .sha256 file.
 
-          eazyConverter has no internet access and keeps none of your files. See PRIVACY.md."
+          eazyConverter has no internet access and keeps none of your files. See PRIVACY.md.
+          NOTES
+          else
+            TITLE="eazyConverter $VERSION (not notarized)"
+            cat > "$WORK/notes.md" <<'NOTES'
+          This build is not notarized by Apple, so macOS will block it the first time you open it. That's expected. Here's how to open it once; after that it opens normally.
+
+          **Install**
+
+          1. Open the DMG, then drag eazyConverter into Applications.
+          2. Open eazyConverter from Applications. macOS says it can't verify the app. Choose Done (or OK).
+          3. Open System Settings, then Privacy & Security. Near the bottom it says eazyConverter was blocked. Choose Open Anyway, then confirm with your password or Touch ID.
+
+          **Or, in Terminal**, after copying the app to Applications:
+
+          ```
+          xattr -dr com.apple.quarantine /Applications/eazyConverter.app
+          ```
+
+          **Check the download (optional):** run `shasum -a 256` on the DMG and compare the result with the .sha256 file.
+
+          Requires macOS 14 or later. eazyConverter has no internet access and keeps none of your files. See PRIVACY.md.
+          NOTES
+          fi
+          sed -i '' 's/^          //' "$WORK/notes.md"
+          gh release create "$GITHUB_REF_NAME" "$DMG" "$DMG.sha256" --title "$TITLE" --notes-file "$WORK/notes.md"
 
       - name: Remove signing material
         if: always()

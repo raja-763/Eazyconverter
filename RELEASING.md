@@ -9,7 +9,9 @@ The release workflow (`.github/workflows/release.yml`) builds eazyConverter on G
 5. checks both with Gatekeeper (`spctl`)
 6. publishes the DMG and a SHA-256 checksum as a GitHub release
 
-If any step fails, nothing is published. An unsigned DMG is never released, because it would show the "Apple could not verify eazyConverter is free of malware" warning.
+If any step fails, nothing is published.
+
+**Without the signing secrets**, the workflow still runs: it builds an ad-hoc signed app, makes the DMG and publishes it as "(not notarized)", with instructions for opening it the first time (System Settings, Privacy & Security, Open Anyway). Add the secrets below to get rid of that step.
 
 ## What you need first
 
