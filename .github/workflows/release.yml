@@ -1,6 +1,7 @@
 name: Release signed DMG
 
-# Push a tag such as v1.0.0 to build and publish a DMG.
+# Publish a release on GitHub (for example tag v1.0.0) and this workflow
+# builds the DMG and attaches it to that release.
 #
 # With the six signing secrets set (see RELEASING.md), the app and DMG are
 # signed with Developer ID and notarized by Apple: no Gatekeeper warning.
@@ -8,8 +9,8 @@ name: Release signed DMG
 # instructions for opening it the first time (System Settings > Open Anyway).
 
 on:
-  push:
-    tags: ['v*']
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -154,7 +155,7 @@ jobs:
           (cd "$WORK" && shasum -a 256 "eazyConverter-$VERSION.dmg" > "eazyConverter-$VERSION.dmg.sha256")
           cat "$DMG.sha256"
 
-      - name: Publish the GitHub release
+      - name: Attach the DMG to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -192,7 +193,8 @@ jobs:
           NOTES
           fi
           sed -i '' 's/^          //' "$WORK/notes.md"
-          gh release create "$GITHUB_REF_NAME" "$DMG" "$DMG.sha256" --title "$TITLE" --notes-file "$WORK/notes.md"
+          gh release upload "$GITHUB_REF_NAME" "$DMG" "$DMG.sha256" --clobber
+          gh release edit "$GITHUB_REF_NAME" --title "$TITLE" --notes-file "$WORK/notes.md"
 
       - name: Remove signing material
         if: always()

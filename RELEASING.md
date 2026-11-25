@@ -68,14 +68,12 @@ GitHub encrypts secrets and never shows them in build logs. The workflow deletes
 
 ## Making a release
 
-Create and push a version tag, for example:
+1. On the repo page, go to Releases, then choose "Draft a new release".
+2. In "Choose a tag", type the version, such as `v1.0.0`, and choose "Create new tag".
+3. Leave the title and description empty: the workflow fills them in.
+4. Choose "Publish release".
 
-```
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-The DMG appears under Releases on the repo page, usually within 15 to 30 minutes. Most of that time is Apple's notarization.
+The workflow then builds the DMG and attaches it, with a `.sha256` checksum, to that release. It usually takes about 5 minutes unsigned, or 15 to 30 minutes signed, mostly waiting on Apple's notarization. You can follow it on the Actions tab.
 
 ## Checking a DMG yourself
 
