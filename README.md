@@ -4,13 +4,17 @@ An accessible file converter and document reader for Mac, iPhone and iPad. It's 
 
 Open a PDF, Word document, web page, text, Markdown, RTF file or picture. Move through it by headings, tables and pages, hear it read aloud, and save it as Word, PDF, HTML, plain text, Markdown or a PNG picture.
 
+## Download
+
+Signed, notarized DMGs are on the Releases page. Open the DMG and drag eazyConverter into Applications. It opens without a Gatekeeper warning, because every release is signed with a Developer ID certificate and notarized by Apple. A release is only published if that succeeds. Requires macOS 14 or later. See RELEASING.md for how releases are made.
+
 ## Build and run
 
 You need Xcode 16 or later on macOS 14 or later.
 
 1. Open `eazyConverter.xcodeproj` in Xcode.
 2. Select the eazyConverter project in the navigator, then the eazyConverter target, then the "Signing & Capabilities" tab. Choose your team from the Team pop-up. A free personal Apple ID team works for running on your own devices.
-3. If Xcode says the bundle identifier is taken, change `com.example.eazyConverter` to something of your own, such as `com.yourname.eazyConverter`.
+3. If Xcode says the bundle identifier is taken, change `io.github.raja763.eazyconverter` to something of your own, such as `com.yourname.eazyConverter`.
 4. Choose a run destination with Control-Shift-0: "My Mac", an iPhone simulator, or your connected iPhone.
 5. Press Command-R to build and run.
 
@@ -137,6 +141,8 @@ This design avoids collecting personal data in the first place, which is the sim
 | `eazyConverter/PrivacyInfo.xcprivacy` | Apple privacy manifest |
 | `eazyConverter.xcodeproj` | Xcode project |
 | `.github/workflows/build.yml` | Builds the Mac and iPhone simulator versions on every push |
+| `.github/workflows/release.yml` | Builds, signs, notarizes and publishes the DMG when a version tag is pushed |
+| `RELEASING.md` | One-time signing setup and how to publish a release |
 | `PRIVACY.md` | Privacy policy, ready for the App Store listing |
 | `CONTRIBUTING.md` | How to contribute and the accessibility checks every change needs |
 | `LICENSE` | MIT License |

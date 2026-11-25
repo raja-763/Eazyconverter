@@ -1,0 +1,135 @@
+name: Release signed DMG
+
+# Push a tag such as v1.0.0 to build, sign, notarize and publish a DMG.
+# The DMG is only published if Apple notarizes it, so people who download it
+# never see the "Apple could not verify..." Gatekeeper warning.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-15
+    env:
+      MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+      NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+      NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stop if signing isn't set up
+        run: |
+          missing=0
+          for v in MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD APPLE_TEAM_ID NOTARY_KEY_P8 NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+            if [ -z "${!v}" ]; then echo "::error::Missing repository secret $v. See RELEASING.md."; missing=1; fi
+          done
+          if [ "$missing" = 1 ]; then
+            echo "::error::No DMG was published. An unsigned DMG would show the Gatekeeper warning."
+            exit 1
+          fi
+
+      - name: Set version
+        run: |
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "WORK=$RUNNER_TEMP/release" >> "$GITHUB_ENV"
+
+      - name: Load the Developer ID certificate into a temporary keychain
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          printf '%s' "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+          printf '%s' "$NOTARY_KEY_P8" > "$RUNNER_TEMP/notary.p8"
+
+      - name: Build and sign the app (hardened runtime, sandboxed, timestamped)
+        run: |
+          xcodebuild \
+            -project eazyConverter.xcodeproj \
+            -target eazyConverter \
+            -sdk macosx \
+            -configuration Release \
+            SYMROOT="$WORK/build" \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp --keychain $KEYCHAIN" \
+            build
+          APP="$WORK/build/Release/eazyConverter.app"
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -d --entitlements - "$APP"
+
+      - name: Notarize and staple the app
+        run: |
+          ditto -c -k --keepParent "$APP" "$WORK/app.zip"
+          xcrun notarytool submit "$WORK/app.zip" \
+            --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" \
+            --wait --timeout 45m --output-format json > "$WORK/app-notary.json"
+          cat "$WORK/app-notary.json"
+          if [ "$(jq -r .status "$WORK/app-notary.json")" != "Accepted" ]; then
+            xcrun notarytool log "$(jq -r .id "$WORK/app-notary.json")" \
+              --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID"
+            exit 1
+          fi
+          xcrun stapler staple "$APP"
+          spctl --assess --type execute --verbose=4 "$APP"
+
+      - name: Make, sign, notarize and staple the DMG
+        run: |
+          DMG="$WORK/eazyConverter-$VERSION.dmg"
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
+          mkdir -p "$WORK/dmg"
+          cp -R "$APP" "$WORK/dmg/"
+          ln -s /Applications "$WORK/dmg/Applications"
+          hdiutil create -volname "eazyConverter" -srcfolder "$WORK/dmg" -ov -format UDZO "$DMG"
+          codesign --sign "Developer ID Application" --keychain "$KEYCHAIN" --timestamp "$DMG"
+          xcrun notarytool submit "$DMG" \
+            --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" \
+            --wait --timeout 45m --output-format json > "$WORK/dmg-notary.json"
+          cat "$WORK/dmg-notary.json"
+          if [ "$(jq -r .status "$WORK/dmg-notary.json")" != "Accepted" ]; then
+            xcrun notarytool log "$(jq -r .id "$WORK/dmg-notary.json")" \
+              --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID"
+            exit 1
+          fi
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG"
+          (cd "$WORK" && shasum -a 256 "eazyConverter-$VERSION.dmg" > "eazyConverter-$VERSION.dmg.sha256")
+          cat "$DMG.sha256"
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$DMG" "$DMG.sha256" \
+            --title "eazyConverter $VERSION" \
+            --notes "Signed with a Developer ID certificate and notarized by Apple, so it opens without a Gatekeeper warning.
+
+          **Install:** open the DMG, then drag eazyConverter into Applications. Requires macOS 14 or later.
+
+          **Check the download (optional):** in Terminal, run \`shasum -a 256\` on the DMG and compare it with the .sha256 file.
+
+          eazyConverter has no internet access and keeps none of your files. See PRIVACY.md."
+
+      - name: Remove signing material
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/cert.p12"
+          if [ -n "$KEYCHAIN" ]; then security delete-keychain "$KEYCHAIN" || true; fi
